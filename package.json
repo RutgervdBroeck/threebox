@@ -12,9 +12,10 @@
   "bugs": {
     "url": "https://github.com/peterqliu/threebox/issues"
   },
-  "dev-dependencies": {
+  "devDependencies": {
     "tap-prettify": "0.0.2",
-    "tape": "^4.6.3"
+    "tape": "^4.6.3",
+    "browserify": "^16.2.2"
   },
   "scripts": {
     "build": "browserify exports.js > dist/threebox.js",
