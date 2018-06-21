@@ -1,12 +1,14 @@
-var THREE = require("./three64.js");    // Modified version to use 64-bit double precision floats for matrix math
+var THREE = require("./three64.js"); // Modified version to use 64-bit double precision floats for matrix math
 var ThreeboxConstants = require("./constants.js");
 var CameraSync = require("./Camera/CameraSync.js");
 var utils = require("./Utils/Utils.js");
 //var AnimationManager = require("./Animation/AnimationManager.js");
 var SymbolLayer3D = require("./Layers/SymbolLayer3D.js");
 
-function Threebox(map){
-    this.map = map;
+function Threebox(options) {
+    this.map = options.map;
+    this.meshMouseOverCallback = options.meshMouseOverCallback;
+    this.meshMouseOutCallback = options.meshMouseOutCallback;
 
     // Set up a THREE.js scene
     this.renderer = new THREE.WebGLRenderer( { alpha: true, antialias:true} );
@@ -17,14 +19,12 @@ function Threebox(map){
     this.renderer.domElement.style["position"] = "relative";
     this.renderer.domElement.style["pointer-events"] = "none";
     this.renderer.domElement.style["z-index"] = 1000;
-    //this.renderer.domElement.style["transform"] = "scale(1,-1)";
 
     var _this = this;
     this.map.on("resize", function() { _this.renderer.setSize(_this.map.transform.width, _this.map.transform.height); } );
 
-
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera( 28, window.innerWidth / window.innerHeight, 0.000001, 5000000000);
+    this.camera = new THREE.PerspectiveCamera(28, window.innerWidth / window.innerHeight, 0.000001, 5000000000);
     this.layers = [];
 
     // The CameraSync object will keep the Mapbox and THREE.js camera movements in sync.
@@ -35,23 +35,89 @@ function Threebox(map){
     this.scene.add(this.world);
     this.cameraSynchronizer = new CameraSync(this.map, this.camera, this.world);
 
-    //this.animationManager = new AnimationManager();
+    // Apply raycaster to interact with 3D objects.
+    this.raycaster = new THREE.Raycaster();
+    this.rayCastingActive = false;
+    this.activeIntersects = [];
+
+    // Object to store current mouse x and y position.
+    this.mouse = new THREE.Vector2();
+
+    // Track mouse move event to update raycasting.
+    document.addEventListener('mousemove', this.onDocumentMouseMove.bind(this));
+
+    // Setup default lightning.
+    this.setupDefaultLights();
+
+    // Bootstrap update loop.
     this.update();
+
+    // Somehow the intersectObjects from the raycaster returns all objects first render??
+    setTimeout(() => {
+        this.rayCastingActive = true;
+    }, 0);
 }
 
 Threebox.prototype = {
     SymbolLayer3D: SymbolLayer3D,
 
     update: function(timestamp) {
-        // Update any animations
-        //this.animationManager.update(timestamp);
+        // Update current state of Racaster.
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+
+        // Collect colliding elelements with mouse.
+        const children = this.collectChildren(this.scene.children);
+        const intersects = this.raycaster.intersectObjects(children);
+
+        if (this.rayCastingActive) this.manageIntersects(intersects);
 
         // Render the scene
-        this.renderer.render( this.scene, this.camera );
+        this.renderer.render(this.scene, this.camera);
 
         // Run this again next frame
         var thisthis = this;
         requestAnimationFrame(function(timestamp) { thisthis.update(timestamp); } );
+    },
+
+    /**
+     * Collect all child meshes from added groups to expose to Raycaster.
+     *
+     * @param children {Array}
+     * @return {Array}
+     */
+    collectChildren: function (children) {
+        let value = [];
+
+        children.map((child) => {
+            if (child.type === 'Group') {
+                child.children.map((child) => {
+                    if (child.type === 'Group') {
+                        if (child.children) value = [...value, ...child.children];
+                    }
+                });
+            }
+        });
+
+        return value;
+    },
+
+    /**
+     * Compare current raycaster intersects with new ones, to manage hover callbacks.
+     *
+     * @param intersects
+     */
+    manageIntersects: function (intersects) {
+        if (intersects.length !== this.activeIntersects.length) {
+            if (intersects.length > 0) {
+                intersects.forEach((mesh) => {
+                    this.meshMouseOverCallback(mesh.object.uuid);
+                });
+            } else {
+                this.meshMouseOutCallback();
+            }
+        }
+
+        this.activeIntersects = intersects;
     },
 
     projectToWorld: function (coords){
@@ -60,7 +126,7 @@ Threebox.prototype = {
             -ThreeboxConstants.MERCATOR_A * coords[0] * ThreeboxConstants.DEG2RAD * ThreeboxConstants.PROJECTION_WORLD_SIZE,
             -ThreeboxConstants.MERCATOR_A * Math.log(Math.tan((Math.PI*0.25) + (0.5 * coords[1] * ThreeboxConstants.DEG2RAD))) * ThreeboxConstants.PROJECTION_WORLD_SIZE
         ];
-     
+
         var pixelsPerMeter = this.projectedUnitsPerMeter(coords[1]);
 
         //z dimension
@@ -71,9 +137,11 @@ Threebox.prototype = {
 
         return result;
     },
+
     projectedUnitsPerMeter: function(latitude) {
         return Math.abs(ThreeboxConstants.WORLD_SIZE * (1 / Math.cos(latitude*Math.PI/180))/ThreeboxConstants.EARTH_CIRCUMFERENCE);
     },
+
     _scaleVerticesToMeters: function(centerLatLng, vertices) {
         var pixelsPerMeter = this.projectedUnitsPerMeter(centerLatLng[1]);
         var centerProjected = this.projectToWorld(centerLatLng);
@@ -84,12 +152,15 @@ Threebox.prototype = {
 
         return vertices;
     },
+
     projectToScreen: function(coords) {
         console.log("WARNING: Projecting to screen coordinates is not yet implemented");
     },
+
     unprojectFromScreen: function (pixel) {
         console.log("WARNING: unproject is not yet implemented");
     },
+
     unprojectFromWorld: function (pixel) {
 
         var unprojected = [
@@ -117,17 +188,18 @@ Threebox.prototype = {
         this._flipMaterialSides(obj);
         this.world.add(geoGroup);
         this.moveToCoordinate(obj, lnglat, options);
-        
+
         // Bestow this mesh with animation superpowers and keeps track of its movements in the global animation queue
-        //this.animationManager.enroll(obj); 
+        //this.animationManager.enroll(obj);
 
         return obj;
     },
+
     moveToCoordinate: function(obj, lnglat, options) {
         /** Place the given object on the map, centered around the provided longitude and latitude
-            The object's internal coordinates are assumed to be in meter-offset format, meaning
-            1 unit represents 1 meter distance away from the provided coordinate.
-        */
+         The object's internal coordinates are assumed to be in meter-offset format, meaning
+         1 unit represents 1 meter distance away from the provided coordinate.
+         */
 
         if (options === undefined) options = {};
         if(options.preScale === undefined) options.preScale = 1.0;
@@ -209,7 +281,11 @@ Threebox.prototype = {
         // //scene.add( lights[ 0 ] );
         // this.scene.add( lights[ 1 ] );
         // this.scene.add( lights[ 2 ] );
-        
+    },
+
+    onDocumentMouseMove: function(event) {
+        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
     }
 }
 
