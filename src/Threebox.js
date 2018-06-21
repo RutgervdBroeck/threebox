@@ -88,21 +88,11 @@ Threebox.prototype = {
     collectChildren: function (children) {
         let value = [];
 
-        // children.map((child) => {
-        //     if (child.type === 'Group') {
-        //         child.children.map((child) => {
-        //             if (child.type === 'Group') {
-        //                 if (child.children) value = [...value, ...child.children];
-        //             }
-        //         });
-        //     }
-        // });
-
         for (let i = 0; i < children.length; i++) {
-            if (children[i].type === 'Group') {
-                for (let j = 0; j < children.length; j++) {
-                    if (children[i].children[j].type === 'Group') {
-                        if (children[i].children[j].children) value = [...value, children[i].children[j].children];
+            if (children[i].type === 'Group' && children[i].children) {
+                for (let j = 0; j < children[i].children.length; j++) {
+                    if (children[i].children[j].type === 'Group' && children[i].children[j].children) {
+                        value = [...value, ...children[i].children[j].children];
                     }
                 }
             }
