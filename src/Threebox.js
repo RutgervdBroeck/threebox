@@ -9,6 +9,7 @@ function Threebox(options) {
     this.map = options.map;
     this.meshMouseOverCallback = options.meshMouseOverCallback;
     this.meshMouseOutCallback = options.meshMouseOutCallback;
+    this.meshMouseClickCallback = options.meshMouseClickCallback;
 
     // Set up a THREE.js scene
     this.renderer = new THREE.WebGLRenderer( { alpha: true, antialias:true} );
@@ -46,6 +47,9 @@ function Threebox(options) {
     // Track mouse move event to update raycasting.
     document.addEventListener('mousemove', this.onDocumentMouseMove.bind(this));
 
+    // Track mouse click event to update raycasting.
+    document.addEventListener('click', this.onDocumentMouseClick.bind(this));
+
     // Setup default lightning.
     this.setupDefaultLights();
 
@@ -65,9 +69,8 @@ Threebox.prototype = {
         // Update current state of Racaster.
         this.raycaster.setFromCamera(this.mouse, this.camera);
 
-        // Collect colliding elelements with mouse.
-        const children = this.collectChildren(this.scene.children);
-        const intersects = this.raycaster.intersectObjects(children);
+        // Collect colliding elements with mouse.
+        const intersects = this.getIntersects(this.scene.children);
 
         if (this.rayCastingActive) this.manageIntersects(intersects);
 
@@ -286,6 +289,24 @@ Threebox.prototype = {
     onDocumentMouseMove: function(event) {
         this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         this.mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+    },
+
+    getIntersects: function(elements) {
+        // Collect colliding elements with mouse.
+        const children = this.collectChildren(elements);
+
+        // Find out which children is intercecting the raycaster AKA which children we clicked
+        const intersects = this.raycaster.intersectObjects(children);
+
+        return intersects;
+    },
+
+    onDocumentMouseClick: function(event) {
+        // Find out which children is intercepting the raycaster AKA which children we clicked
+        const intersects = this.getIntersects(this.scene.children);
+
+        // Fire click event if one exists
+        if (intersects.length > 0 && this.meshMouseClickCallback) this.meshMouseClickCallback(intersects[0].object.uuid);
     }
 }
 
